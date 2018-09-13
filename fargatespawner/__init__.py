@@ -1,1 +1,1 @@
-from fargatespawner import FargateSpawner
+from .fargatespawner import FargateSpawner
