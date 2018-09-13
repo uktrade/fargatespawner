@@ -82,7 +82,6 @@ class FargateSpawner(Spawner):
     async def start(self):
         self.log.debug('Starting spawner')
         self.progress_buffer = AsyncIteratorBuffer()
-        max_polls = 600
 
         task_port = self.notebook_port
 
@@ -101,6 +100,7 @@ class FargateSpawner(Spawner):
 
         self.task_arn = task_arn
 
+        max_polls = 50
         num_polls = 0
         task_ip = ''
         while task_ip == '':
@@ -112,6 +112,7 @@ class FargateSpawner(Spawner):
             await gen.sleep(1)
             self.progress_buffer.write({'progress': 10 + num_polls / max_polls * 10})
 
+        max_polls = 300
         num_polls = 0
         status = ''
         while status != 'RUNNING':
