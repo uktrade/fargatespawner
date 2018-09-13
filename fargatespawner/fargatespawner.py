@@ -10,6 +10,9 @@ from jupyterhub.spawner import (
 from tornado import (
     gen,
 )
+from tornado.concurrent import (
+    Future,
+)
 from tornado.httpclient import (
     AsyncHTTPClient,
     HTTPError,
@@ -45,6 +48,8 @@ class FargateSpawner(Spawner):
     # to check the task.
     calling_run_task = Bool(False)
 
+    progress_buffer = None
+
     def load_state(self, state):
         ''' Misleading name: this "loads" the state onto self, to be used by other methods '''
 
@@ -76,10 +81,12 @@ class FargateSpawner(Spawner):
 
     async def start(self):
         self.log.debug('Starting spawner')
+        self.progress_buffer = AsyncIteratorBuffer()
         max_polls = 600
 
         task_port = self.notebook_port
 
+        self.progress_buffer.write({'progress': 5, 'message': 'Starting server...'})
         try:
             self.calling_run_task = True
             args = ['--debug', '--port=' + str(task_port)] + self.notebook_args
@@ -88,6 +95,7 @@ class FargateSpawner(Spawner):
                 self.task_cluster_name, self.task_definition_arn, self.task_security_groups, self.task_subnets,
                 self.cmd + args, self.get_env())
             task_arn = run_response['tasks'][0]['taskArn']
+            self.progress_buffer.write({'progress': 10})
         finally:
             self.calling_run_task = False
 
@@ -102,6 +110,7 @@ class FargateSpawner(Spawner):
 
             task_ip = await _get_task_ip(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
             await gen.sleep(1)
+            self.progress_buffer.write({'progress': 10 + num_polls / max_polls * 10})
 
         num_polls = 0
         status = ''
@@ -115,6 +124,12 @@ class FargateSpawner(Spawner):
                 raise Exception('Task {} is {}'.format(self.task_arn, status))
 
             await gen.sleep(1)
+            self.progress_buffer.write({'progress': 20 + num_polls / max_polls * 80})
+
+        self.progress_buffer.write({'progress': 100, 'message': 'Server started'})
+        await gen.sleep(3)
+
+        self.progress_buffer.close()
 
         return f'{self.notebook_scheme}://{task_ip}:{task_port}'
 
@@ -130,6 +145,10 @@ class FargateSpawner(Spawner):
         super().clear_state()
         self.log.debug('Clearing state: (%s)', self.task_arn)
         self.task_arn = ''
+
+    async def progress(self):
+        async for progress_message in self.progress_buffer:
+            yield progress_message
 
     def _aws_endpoint(self):
         return {
@@ -291,3 +310,31 @@ def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, paylo
             f'SignedHeaders={signed_headers}, Signature=' + signature()
         ),
     }
+
+
+class AsyncIteratorBuffer:
+    # The progress streaming endpoint may be requested multiple times, so each
+    # call to `__aiter__` must return an iterator that starts from the first message
+
+    class _Iterator:
+        def __init__(self, parent):
+            self.parent = parent
+            self.cursor = 0
+
+        async def __anext__(self):
+            future = self.parent.futures[self.cursor]
+            self.cursor += 1
+            return await future
+
+    def __init__(self):
+        self.futures = [Future()]
+
+    def __aiter__(self):
+        return self._Iterator(self)
+
+    def close(self):
+        self.futures[-1].set_exception(StopAsyncIteration())
+
+    def write(self, item):
+        self.futures[-1].set_result(item)
+        self.futures.append(Future())
