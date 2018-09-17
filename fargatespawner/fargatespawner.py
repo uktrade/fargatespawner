@@ -106,7 +106,7 @@ class FargateSpawner(Spawner):
         while task_ip == '':
             num_polls += 1
             if num_polls >= max_polls:
-                raise Exception('Task %s took too long to find IP address'.format(self.task_arn))
+                raise Exception('Task {} took too long to find IP address'.format(self.task_arn))
 
             task_ip = await _get_task_ip(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
             await gen.sleep(1)
@@ -118,7 +118,7 @@ class FargateSpawner(Spawner):
         while status != 'RUNNING':
             num_polls += 1
             if num_polls >= max_polls:
-                raise Exception('Task %s took too long to become running'.format(self.task_arn))
+                raise Exception('Task {} took too long to become running'.format(self.task_arn))
 
             status = await _get_task_status(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
             if status not in ALLOWED_STATUSES:
