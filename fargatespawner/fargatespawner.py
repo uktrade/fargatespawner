@@ -179,7 +179,7 @@ async def _get_task_ip(logger, aws_endpoint, task_cluster_name, task_arn):
         attachment['value']
         for attachment in described_task['attachments'][0]['details']
         if attachment['name'] == 'privateIPv4Address'
-    ] if 'attachments' in described_task and described_task['attachments'] else []
+    ] if described_task and 'attachments' in described_task and described_task['attachments'] else []
     ip_address = ip_address_attachements[0] if ip_address_attachements else ''
     return ip_address
 
