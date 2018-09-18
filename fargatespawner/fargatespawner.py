@@ -162,7 +162,7 @@ class FargateSpawner(Spawner):
         }
 
 
-ALLOWED_STATUSES = ('PROVISIONING', 'PENDING', 'RUNNING')
+ALLOWED_STATUSES = ('', 'PROVISIONING', 'PENDING', 'RUNNING')
 
 
 async def _stop_task(logger, aws_endpoint, task_cluster_name, task_arn):
@@ -173,34 +173,37 @@ async def _stop_task(logger, aws_endpoint, task_cluster_name, task_arn):
 
 
 async def _get_task_ip(logger, aws_endpoint, task_cluster_name, task_arn):
-    described_tasks = await _describe_tasks(logger, aws_endpoint, task_cluster_name, [task_arn])
-    # Very strangely, sometimes 'tasks' is returned, sometimes 'task'
-    # Also, creating a task seems to be eventually consistent, so it might
-    # not be present at all
-    task = \
-        described_tasks['tasks'][0] if 'tasks' in described_tasks else \
-        described_tasks['task'] if 'task' in described_tasks else \
-        {}
+    described_task = await _describe_task(logger, aws_endpoint, task_cluster_name, task_arn)
+
     ip_address_attachements = [
         attachment['value']
-        for attachment in task['attachments'][0]['details']
+        for attachment in described_task['attachments'][0]['details']
         if attachment['name'] == 'privateIPv4Address'
-    ] if 'attachments' in task and task['attachments'] else []
+    ] if 'attachments' in described_task and described_task['attachments'] else []
     ip_address = ip_address_attachements[0] if ip_address_attachements else ''
     return ip_address
 
 
 async def _get_task_status(logger, aws_endpoint, task_cluster_name, task_arn):
-    described_tasks = await _describe_tasks(logger, aws_endpoint, task_cluster_name, [task_arn])
-    status = described_tasks['tasks'][0]['lastStatus'] if described_tasks['tasks'] else ''
+    described_task = await _describe_task(logger, aws_endpoint, task_cluster_name, task_arn)
+    status = described_task['lastStatus'] if described_task else ''
     return status
 
 
-async def _describe_tasks(logger, aws_endpoint, task_cluster_name, task_arns):
-    return await _make_ecs_request(logger, aws_endpoint, 'DescribeTasks', {
+async def _describe_task(logger, aws_endpoint, task_cluster_name, task_arn):
+    described_tasks = await _make_ecs_request(logger, aws_endpoint, 'DescribeTasks', {
         'cluster': task_cluster_name,
-        'tasks': task_arns
+        'tasks': [task_arn]
     })
+
+    # Very strangely, sometimes 'tasks' is returned, sometimes 'task'
+    # Also, creating a task seems to be eventually consistent, so it might
+    # not be present at all
+    task = \
+        described_tasks['tasks'][0] if 'tasks' in described_tasks and described_tasks['tasks'] else \
+        described_tasks['task'] if 'task' in described_tasks else \
+        None
+    return task
 
 
 async def _run_task(logger, aws_endpoint,
