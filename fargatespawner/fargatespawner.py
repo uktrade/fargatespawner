@@ -85,7 +85,7 @@ class FargateSpawner(Spawner):
 
         task_port = self.notebook_port
 
-        self.progress_buffer.write({'progress': 5, 'message': 'Starting server...'})
+        self.progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
         try:
             self.calling_run_task = True
             args = ['--debug', '--port=' + str(task_port)] + self.notebook_args
@@ -94,7 +94,7 @@ class FargateSpawner(Spawner):
                 self.task_cluster_name, self.task_definition_arn, self.task_security_groups, self.task_subnets,
                 self.cmd + args, self.get_env())
             task_arn = run_response['tasks'][0]['taskArn']
-            self.progress_buffer.write({'progress': 10})
+            self.progress_buffer.write({'progress': 1})
         finally:
             self.calling_run_task = False
 
@@ -110,9 +110,11 @@ class FargateSpawner(Spawner):
 
             task_ip = await _get_task_ip(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 10 + num_polls / max_polls * 10})
+            self.progress_buffer.write({'progress': 1 + num_polls / max_polls})
 
-        max_polls = 300
+        self.progress_buffer.write({'progress': 2})
+
+        max_polls = self.start_timeout
         num_polls = 0
         status = ''
         while status != 'RUNNING':
@@ -125,10 +127,10 @@ class FargateSpawner(Spawner):
                 raise Exception('Task {} is {}'.format(self.task_arn, status))
 
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 20 + num_polls / max_polls * 80})
+            self.progress_buffer.write({'progress': 2 + num_polls / max_polls * 98})
 
         self.progress_buffer.write({'progress': 100, 'message': 'Server started'})
-        await gen.sleep(3)
+        await gen.sleep(1)
 
         self.progress_buffer.close()
 
