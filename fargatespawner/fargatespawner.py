@@ -272,6 +272,7 @@ def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, paylo
     signed_header_keys = sorted([header_key
                                  for header_key in headers_lower.keys()] + ['host', 'x-amz-date'])
     signed_headers = ';'.join([header_key for header_key in signed_header_keys])
+    payload_hash = hashlib.sha256(payload).hexdigest()
 
     def signature():
         def canonical_request():
@@ -291,7 +292,6 @@ def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, paylo
                 header_key + ':' + header_values[header_key] + '\n'
                 for header_key in signed_header_keys
             ])
-            payload_hash = hashlib.sha256(payload).hexdigest()
 
             return f'{method}\n{canonical_uri}\n{canonical_querystring}\n' + \
                    f'{canonical_headers}\n{signed_headers}\n{payload_hash}'
@@ -311,6 +311,7 @@ def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, paylo
 
     return {
         'x-amz-date': amzdate,
+        'x-amz-content-sha256': payload_hash,
         'Authorization': (
             f'{algorithm} Credential={aws_endpoint["access_key_id"]}/{credential_scope}, ' +
             f'SignedHeaders={signed_headers}, Signature=' + signature()
