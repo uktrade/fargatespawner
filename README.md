@@ -26,6 +26,7 @@ You _must_ also set the following settings on `c.FargateSpawner` in your `jupyte
 | `aws_access_key_id` | The ID of the AWS access key used to sign the requests to the AWS ECS API. | _ommitted_ |
 | `aws_secret_access_key` | The secret part of the AWS access key used to sign the requests to the AWS ECS API .| _ommitted_ |
 | `task_cluster_name` | The name of the ECS cluster in which the tasks are launched. | `'jupyerhub-notebooks'` |
+| `task_container_name` | The name of the container in the task definition. | `'jupyerhub-notebook'` |
 | `task_definition_arn` | The family and revision (family:revision) or full ARN of the task definition that runs the notebooks. Typically, this task definition would specify a docker image that builds on one of those from https://github.com/jupyter/docker-stacks. | `'jupyterhub-notebook:7'` |
 | `task_security_groups` | The security group(s) associated with the Fargate tasks. These must allow communication to and from the hub/proxy. More information, such as the ports used, is at https://jupyterhub.readthedocs.io/en/stable/getting-started/networking-basics.html. | `['sg-00026fc201a4e374b']` |
 | `task_subnets` | The subnets associated with the Fargate tasks. | `['subnet-01fc5f15ac710c012']` } |
