@@ -33,6 +33,7 @@ class FargateSpawner(Spawner):
     aws_access_key_id = Unicode(config=True)
     aws_secret_access_key = Unicode(config=True)
     task_cluster_name = Unicode(config=True)
+    task_container_name = Unicode(config=True)
     task_definition_arn = Unicode(config=True)
     task_security_groups = List(trait=Unicode, config=True)
     task_subnets = List(trait=Unicode, config=True)
@@ -91,7 +92,8 @@ class FargateSpawner(Spawner):
             args = ['--debug', '--port=' + str(task_port)] + self.notebook_args
             run_response = await _run_task(
                 self.log, self._aws_endpoint(),
-                self.task_cluster_name, self.task_definition_arn, self.task_security_groups, self.task_subnets,
+                self.task_cluster_name, self.task_container_name, self.task_definition_arn,
+                self.task_security_groups, self.task_subnets,
                 self.cmd + args, self.get_env())
             task_arn = run_response['tasks'][0]['taskArn']
             self.progress_buffer.write({'progress': 1})
@@ -207,7 +209,7 @@ async def _describe_task(logger, aws_endpoint, task_cluster_name, task_arn):
 
 
 async def _run_task(logger, aws_endpoint,
-                    task_cluster_name, task_definition_arn, task_security_groups, task_subnets,
+                    task_cluster_name, task_container_name, task_definition_arn, task_security_groups, task_subnets,
                     task_command_and_args, task_env):
     return await _make_ecs_request(logger, aws_endpoint, 'RunTask', {
         'cluster': task_cluster_name,
@@ -221,7 +223,7 @@ async def _run_task(logger, aws_endpoint,
                         'value': value,
                     } for name, value in task_env.items()
                 ],
-                'name': 'jupyterhub-singleuser',
+                'name': task_container_name,
             }],
         },
         'count': 1,
