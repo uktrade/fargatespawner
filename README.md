@@ -25,6 +25,7 @@ You _must_ also set the following settings on `c.FargateSpawner` in your `jupyte
 | `aws_host`  | The hostname of the AWS ECS API. Typically, this is of the form `ecs.<aws-region>.amazonaws.com`. | `'ecs.eu-west-1.amazonaws.com'` |
 | `aws_access_key_id` | The ID of the AWS access key used to sign the requests to the AWS ECS API. | _ommitted_ |
 | `aws_secret_access_key` | The secret part of the AWS access key used to sign the requests to the AWS ECS API .| _ommitted_ |
+| `task_role_arn` | The role the notebook tasks can assume. For example, in order for them to make requests to AWS, such as to use [Jupyter S3](https://github.com/uktrade/jupyters3) with role-based authentication. | `'arn:aws:iam::123456789012:role/notebook-task'` |
 | `task_cluster_name` | The name of the ECS cluster in which the tasks are launched. | `'jupyerhub-notebooks'` |
 | `task_container_name` | The name of the container in the task definition. | `'jupyerhub-notebook'` |
 | `task_definition_arn` | The family and revision (family:revision) or full ARN of the task definition that runs the notebooks. Typically, this task definition would specify a docker image that builds on one of those from https://github.com/jupyter/docker-stacks. | `'jupyterhub-notebook:7'` |

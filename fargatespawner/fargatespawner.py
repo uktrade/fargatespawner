@@ -32,6 +32,7 @@ class FargateSpawner(Spawner):
     aws_host = Unicode(config=True)
     aws_access_key_id = Unicode(config=True)
     aws_secret_access_key = Unicode(config=True)
+    task_role_arn = Unicode(config=True)
     task_cluster_name = Unicode(config=True)
     task_container_name = Unicode(config=True)
     task_definition_arn = Unicode(config=True)
@@ -91,6 +92,7 @@ class FargateSpawner(Spawner):
             args = ['--debug', '--port=' + str(task_port)] + self.notebook_args
             run_response = await _run_task(
                 self.log, self._aws_endpoint(),
+                self.task_role_arn,
                 self.task_cluster_name, self.task_container_name, self.task_definition_arn,
                 self.task_security_groups, self.task_subnets,
                 self.cmd + args, self.get_env())
@@ -209,12 +211,14 @@ async def _describe_task(logger, aws_endpoint, task_cluster_name, task_arn):
 
 
 async def _run_task(logger, aws_endpoint,
+                    task_role_arn,
                     task_cluster_name, task_container_name, task_definition_arn, task_security_groups, task_subnets,
                     task_command_and_args, task_env):
     return await _make_ecs_request(logger, aws_endpoint, 'RunTask', {
         'cluster': task_cluster_name,
         'taskDefinition': task_definition_arn,
         'overrides': {
+            'taskRoleArn': task_role_arn,
             'containerOverrides': [{
                 'command': task_command_and_args,
                 'environment': [
