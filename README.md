@@ -37,3 +37,57 @@ You _must_ also set the following settings on `c.FargateSpawner` in your `jupyte
 ## Run-time dependencies
 
 The spawner is deliberately written to not have any additional dependencies, beyond those that are required for JupyterHub.
+
+## Approximate minimum permissions
+
+In order for the user to be able to start, monitor, and stop the tasks, they should have the below permissions.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": "ecs:RunTask",
+      "Resource": "arn:aws:ecs:<aws_region>:<aws_account_id>:task-definition/<task_family>:*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:<aws_region>:<aws_account_id>:cluster/<cluster_name>"
+        }
+      }
+    },
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": "ecs:StopTask",
+      "Resource": "arn:aws:ecs:<aws_region>:<aws_account_id>:task/*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:<aws_region>:<aws_account_id>:cluster/<cluster_name>"
+        }
+      }
+    },
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTasks",
+      "Resource": "arn:aws:ecs:<aws_region>:<aws_account_id>:task/*",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:<aws_region>:<aws_account_id>:cluster/<cluster_name>"
+        }
+      }
+    },
+    {
+      "Sid": "",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::<aws_account_id>:role/<task-execution-role>",
+        "arn:aws:iam::<aws_account_id>:role/<task-role>"
+      ]
+    }
+  ]
+}
+```
