@@ -82,7 +82,6 @@ class FargateSpawner(Spawner):
 
     async def start(self):
         self.log.debug('Starting spawner')
-        self.progress_buffer = AsyncIteratorBuffer()
 
         task_port = self.notebook_port
 
@@ -150,6 +149,7 @@ class FargateSpawner(Spawner):
         super().clear_state()
         self.log.debug('Clearing state: (%s)', self.task_arn)
         self.task_arn = ''
+        self.progress_buffer = AsyncIteratorBuffer()
 
     async def progress(self):
         async for progress_message in self.progress_buffer:
