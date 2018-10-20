@@ -245,15 +245,18 @@ async def _run_task(logger, aws_endpoint,
 async def _make_ecs_request(logger, aws_endpoint, target, dict_data):
     service = 'ecs'
     body = json.dumps(dict_data).encode('utf-8')
-    headers = {
+    pre_auth_headers = {
         'X-Amz-Target': f'AmazonEC2ContainerServiceV20141113.{target}',
         'Content-Type': 'application/x-amz-json-1.1',
     }
     path = '/'
-    auth_headers = _aws_auth_headers(service, aws_endpoint, 'POST', path, {}, headers, body)
+    query = {}
+    headers = _aws_headers(service, aws_endpoint['access_key_id'], aws_endpoint['secret_access_key'],
+                           aws_endpoint['region'], aws_endpoint['host'],
+                           'POST', path, query, pre_auth_headers, body)
     client = AsyncHTTPClient()
     url = f'https://{aws_endpoint["host"]}{path}'
-    request = HTTPRequest(url, method='POST', headers={**headers, **auth_headers}, body=body)
+    request = HTTPRequest(url, method='POST', headers=headers, body=body)
     logger.debug('Making request (%s)', body)
     try:
         response = await client.fetch(request)
@@ -264,27 +267,30 @@ async def _make_ecs_request(logger, aws_endpoint, target, dict_data):
     return json.loads(response.body)
 
 
-def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, payload):
+def _aws_headers(service, access_key_id, secret_access_key,
+                 region, host, method, path, query, pre_auth_headers, payload):
     algorithm = 'AWS4-HMAC-SHA256'
 
     now = datetime.datetime.utcnow()
     amzdate = now.strftime('%Y%m%dT%H%M%SZ')
     datestamp = now.strftime('%Y%m%d')
-    credential_scope = f'{datestamp}/{aws_endpoint["region"]}/{service}/aws4_request'
+    credential_scope = f'{datestamp}/{region}/{service}/aws4_request'
     headers_lower = {
         header_key.lower().strip(): header_value.strip()
-        for header_key, header_value in headers.items()
+        for header_key, header_value in pre_auth_headers.items()
     }
+    required_headers = ['host', 'x-amz-content-sha256', 'x-amz-date']
     signed_header_keys = sorted([header_key
-                                 for header_key in headers_lower.keys()] + ['host', 'x-amz-date'])
-    signed_headers = ';'.join([header_key for header_key in signed_header_keys])
+                                 for header_key in headers_lower.keys()] + required_headers)
+    signed_headers = ';'.join(signed_header_keys)
     payload_hash = hashlib.sha256(payload).hexdigest()
 
     def signature():
         def canonical_request():
             header_values = {
                 **headers_lower,
-                'host': aws_endpoint['host'],
+                'host': host,
+                'x-amz-content-sha256': payload_hash,
                 'x-amz-date': amzdate,
             }
 
@@ -309,17 +315,18 @@ def _aws_auth_headers(service, aws_endpoint, method, path, query, headers, paylo
             f'{algorithm}\n{amzdate}\n{credential_scope}\n' + \
             hashlib.sha256(canonical_request().encode('utf-8')).hexdigest()
 
-        date_key = sign(('AWS4' + aws_endpoint['secret_access_key']).encode('utf-8'), datestamp)
-        region_key = sign(date_key, aws_endpoint['region'])
+        date_key = sign(('AWS4' + secret_access_key).encode('utf-8'), datestamp)
+        region_key = sign(date_key, region)
         service_key = sign(region_key, service)
         request_key = sign(service_key, 'aws4_request')
         return sign(request_key, string_to_sign).hex()
 
     return {
+        **pre_auth_headers,
         'x-amz-date': amzdate,
         'x-amz-content-sha256': payload_hash,
         'Authorization': (
-            f'{algorithm} Credential={aws_endpoint["access_key_id"]}/{credential_scope}, ' +
+            f'{algorithm} Credential={access_key_id}/{credential_scope}, ' +
             f'SignedHeaders={signed_headers}, Signature=' + signature()
         ),
     }
