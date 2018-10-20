@@ -1,7 +1,11 @@
+from collections import (
+    namedtuple,
+)
 import datetime
 import hashlib
 import hmac
 import json
+import os
 import urllib
 
 from jupyterhub.spawner import (
@@ -18,20 +22,82 @@ from tornado.httpclient import (
     HTTPError,
     HTTPRequest,
 )
+from traitlets.config.configurable import (
+    Configurable,
+)
 from traitlets import (
     Bool,
+    Dict,
+    Instance,
     Int,
     List,
+    TraitType,
+    Type,
     Unicode,
+    default,
 )
+
+AwsCreds = namedtuple('AwsCreds', [
+    'access_key_id', 'secret_access_key', 'pre_auth_headers',
+])
+
+
+class Datetime(TraitType):
+    klass = datetime.datetime
+    default_value = datetime.datetime(1900, 1, 1)
+
+
+class FargateSpawnerAuthentication(Configurable):
+
+    async def get_credentials(self):
+        raise NotImplementedError()
+
+
+class FargateSpawnerSecretAccessKeyAuthentication(FargateSpawnerAuthentication):
+
+    aws_access_key_id = Unicode(config=True)
+    aws_secret_access_key = Unicode(config=True)
+    pre_auth_headers = Dict()
+
+    async def get_credentials(self):
+        return AwsCreds(
+            access_key_id=self.aws_access_key_id,
+            secret_access_key=self.aws_secret_access_key,
+            pre_auth_headers=self.pre_auth_headers,
+        )
+
+
+class FargateSpawnerECSRoleAuthentication(FargateSpawnerAuthentication):
+
+    aws_access_key_id = Unicode()
+    aws_secret_access_key = Unicode()
+    pre_auth_headers = Dict()
+    expiration = Datetime()
+
+    async def get_credentials(self):
+        now = datetime.datetime.now()
+
+        if now > self.expiration:
+            request = HTTPRequest('http://169.254.170.2/' + os.environ['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], method='GET')
+            creds = json.loads((await AsyncHTTPClient().fetch(request)).body.decode('utf-8'))
+            self.aws_access_key_id = creds['AccessKeyId']
+            self.aws_secret_access_key = creds['SecretAccessKey']
+            self.pre_auth_headers = {
+                'x-amz-security-token': creds['Token'],
+            }
+            self.expiration = datetime.datetime.strptime(creds['Expiration'], '%Y-%m-%dT%H:%M:%SZ')
+
+        return AwsCreds(
+            access_key_id=self.aws_access_key_id,
+            secret_access_key=self.aws_secret_access_key,
+            pre_auth_headers=self.pre_auth_headers,
+        )
 
 
 class FargateSpawner(Spawner):
 
     aws_region = Unicode(config=True)
-    aws_host = Unicode(config=True)
-    aws_access_key_id = Unicode(config=True)
-    aws_secret_access_key = Unicode(config=True)
+    aws_ecs_host = Unicode(config=True)
     task_role_arn = Unicode(config=True)
     task_cluster_name = Unicode(config=True)
     task_container_name = Unicode(config=True)
@@ -41,6 +107,13 @@ class FargateSpawner(Spawner):
     notebook_port = Int(config=True)
     notebook_scheme = Unicode(config=True)
     notebook_args = List(trait=Unicode, config=True)
+
+    authentication_class = Type(FargateSpawnerAuthentication, config=True)
+    authentication = Instance(FargateSpawnerAuthentication)
+
+    @default('authentication')
+    def _default_authentication(self):
+        return self.authentication_class(parent=self)
 
     task_arn = Unicode('')
 
@@ -160,9 +233,8 @@ class FargateSpawner(Spawner):
     def _aws_endpoint(self):
         return {
             'region': self.aws_region,
-            'host': self.aws_host,
-            'access_key_id': self.aws_access_key_id,
-            'secret_access_key': self.aws_secret_access_key,
+            'ecs_host': self.aws_ecs_host,
+            'ecs_auth': self.authentication.get_credentials,
         }
 
 
@@ -245,17 +317,19 @@ async def _run_task(logger, aws_endpoint,
 async def _make_ecs_request(logger, aws_endpoint, target, dict_data):
     service = 'ecs'
     body = json.dumps(dict_data).encode('utf-8')
+    credentials = await aws_endpoint['ecs_auth']()
     pre_auth_headers = {
         'X-Amz-Target': f'AmazonEC2ContainerServiceV20141113.{target}',
         'Content-Type': 'application/x-amz-json-1.1',
+        **credentials.pre_auth_headers,
     }
     path = '/'
     query = {}
-    headers = _aws_headers(service, aws_endpoint['access_key_id'], aws_endpoint['secret_access_key'],
-                           aws_endpoint['region'], aws_endpoint['host'],
+    headers = _aws_headers(service, credentials.access_key_id, credentials.secret_access_key,
+                           aws_endpoint['region'], aws_endpoint['ecs_host'],
                            'POST', path, query, pre_auth_headers, body)
     client = AsyncHTTPClient()
-    url = f'https://{aws_endpoint["host"]}{path}'
+    url = f'https://{aws_endpoint["ecs_host"]}{path}'
     request = HTTPRequest(url, method='POST', headers=headers, body=body)
     logger.debug('Making request (%s)', body)
     try:
