@@ -78,7 +78,7 @@ class FargateSpawnerECSRoleAuthentication(FargateSpawnerAuthentication):
         now = datetime.datetime.now()
 
         if now > self.expiration:
-            request = HTTPRequest('http://169.254.170.2/' + os.environ['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], method='GET')
+            request = HTTPRequest('http://169.254.170.2' + os.environ['AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], method='GET')
             creds = json.loads((await AsyncHTTPClient().fetch(request)).body.decode('utf-8'))
             self.aws_access_key_id = creds['AccessKeyId']
             self.aws_secret_access_key = creds['SecretAccessKey']
