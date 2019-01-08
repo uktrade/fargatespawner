@@ -218,7 +218,7 @@ class FargateSpawner(Spawner):
             return
 
         self.log.debug('Stopping task (%s)...', self.task_arn)
-        await _stop_task(self.log, self._aws_endpoint(), self.task_cluster_name, self.task_arn)
+        await _ensure_stopped_task(self.log, self._aws_endpoint(), self.task_cluster_name, self.task_arn)
         self.log.debug('Stopped task (%s)... (done)', self.task_arn)
 
     def clear_state(self):
@@ -242,11 +242,15 @@ class FargateSpawner(Spawner):
 ALLOWED_STATUSES = ('', 'PROVISIONING', 'PENDING', 'RUNNING')
 
 
-async def _stop_task(logger, aws_endpoint, task_cluster_name, task_arn):
-    return await _make_ecs_request(logger, aws_endpoint, 'StopTask', {
-        'cluster': task_cluster_name,
-        'task': task_arn
-    })
+async def _ensure_stopped_task(logger, aws_endpoint, task_cluster_name, task_arn):
+    try:
+        return await _make_ecs_request(logger, aws_endpoint, 'StopTask', {
+            'cluster': task_cluster_name,
+            'task': task_arn
+        })
+    except HTTPError as exception:
+        if b'task was not found' not in exception.response.body:
+            raise
 
 
 async def _get_task_ip(logger, aws_endpoint, task_cluster_name, task_arn):
