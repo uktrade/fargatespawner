@@ -50,7 +50,7 @@ _and_ the following settings on `c.FargateSpawnerSecretAccessKeyAuthentication`
 _or_ authenticate using a role in an ECS container, in which case you must have the following configuration
 
 ```python
-from jupters3 import FargateSpawnerECSRoleAuthentication
+from fargatespawner import FargateSpawnerECSRoleAuthentication
 c.FargateSpawner.authentication_class = FargateSpawnerECSRoleAuthentication
 ```
 
