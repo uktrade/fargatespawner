@@ -56,6 +56,13 @@ c.FargateSpawner.authentication_class = FargateSpawnerECSRoleAuthentication
 
 where FargateSpawnerECSRoleAuthentication does not have configurable options.
 
+_or_ authenticate using a IAM profile attached to EC2 instance, in which case you must have the following configuration:
+
+```python
+from fargatespawner import FargateSpawnerEC2InstanceProfileAuthentication
+c.FargateSpawner.authentication_class = FargateSpawnerEC2InstanceProfileAuthentication
+```
+
 
 ## Run-time dependencies
 
