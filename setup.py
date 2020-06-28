@@ -5,7 +5,7 @@ with open('README.md', 'r') as fh:
 
 setuptools.setup(
     name='fargatespawner',
-    version='0.0.24',
+    version='0.0.25',
     author='Department for International Trade - WebOps',
     author_email='webops@digital.trade.gov.uk',
     description='Spawns JupyterHub single user servers in Docker containers running in AWS Fargate',
