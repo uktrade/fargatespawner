@@ -159,13 +159,11 @@ class FargateSpawner(Spawner):
 
         self.log.debug('Starting spawner')
 
-        task_port = self.notebook_port
-
         progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
         try:
             self.calling_run_task = True
             debug_args = ['--debug'] if self.debug else []
-            args = debug_args + ['--port=' + str(task_port)] + self.notebook_args
+            args = debug_args + ['--port=' + str(self.notebook_port)] + self.notebook_args
             run_response = await _run_task(
                 self.log, self._aws_endpoint(),
                 self.task_role_arn,
@@ -213,7 +211,7 @@ class FargateSpawner(Spawner):
 
         progress_buffer.close()
 
-        return f'{self.notebook_scheme}://{task_ip}:{task_port}'
+        return f'{self.notebook_scheme}://{task_ip}:{self.notebook_port}'
 
     async def stop(self, now=False):
         if self.task_arn == '':
