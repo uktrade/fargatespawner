@@ -42,6 +42,16 @@ AwsCreds = namedtuple('AwsCreds', [
 ])
 
 
+class Callable(TraitType):
+    info_text = 'a callable'
+
+    def validate(self, obj, value):
+        if callable(value):
+            return value
+        else:
+            self.error(obj, value)
+
+
 class Datetime(TraitType):
     klass = datetime.datetime
     default_value = datetime.datetime(1900, 1, 1)
@@ -98,15 +108,11 @@ class FargateSpawner(Spawner):
 
     aws_region = Unicode(config=True)
     aws_ecs_host = Unicode(config=True)
-    task_role_arn = Unicode(config=True)
-    task_cluster_name = Unicode(config=True)
-    task_container_name = Unicode(config=True)
-    task_definition_arn = Unicode(config=True)
-    task_security_groups = List(trait=Unicode, config=True)
-    task_subnets = List(trait=Unicode, config=True)
+
+    get_run_task_args = Callable(config=True)
+
     notebook_port = Int(config=True)
     notebook_scheme = Unicode(config=True)
-    notebook_args = List(trait=Unicode, config=True)
 
     authentication_class = Type(FargateSpawnerAuthentication, config=True)
     authentication = Instance(FargateSpawnerAuthentication)
@@ -116,6 +122,7 @@ class FargateSpawner(Spawner):
         return self.authentication_class(parent=self)
 
     task_arn = Unicode('')
+    task_cluster_arn = Unicode('')
 
     # We mostly are able to call the AWS API to determine status. However, when we yield the
     # event loop to create the task, if there is a poll before the creation is complete,
@@ -132,6 +139,7 @@ class FargateSpawner(Spawner):
 
         # Called when first created: we might have no state from a previous invocation
         self.task_arn = state.get('task_arn', '')
+        self.task_cluster_arn = state.get('task_cluster_arn', '')
 
     def get_state(self):
         ''' Misleading name: the return value of get_state is saved to the database in order
@@ -139,6 +147,7 @@ class FargateSpawner(Spawner):
 
         state = super().get_state()
         state['task_arn'] = self.task_arn
+        state['task_cluster_arn'] = self.task_cluster_arn
 
         return state
 
@@ -151,31 +160,26 @@ class FargateSpawner(Spawner):
         return \
             None if self.calling_run_task else \
             0 if self.task_arn == '' else \
-            None if (await _get_task_status(self.log, self._aws_endpoint(), self.task_cluster_name, self.task_arn)) in ALLOWED_STATUSES else \
+            None if (await _get_task_status(self.log, self._aws_endpoint(), self.task_cluster_arn, self.task_arn)) in ALLOWED_STATUSES else \
             1
 
     async def start(self):
+        progress_buffer = self.progress_buffer
+
         self.log.debug('Starting spawner')
 
-        task_port = self.notebook_port
-
-        self.progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
+        progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
         try:
             self.calling_run_task = True
-            debug_args = ['--debug'] if self.debug else []
-            args = debug_args + ['--port=' + str(task_port)] + self.notebook_args
-            run_response = await _run_task(
-                self.log, self._aws_endpoint(),
-                self.task_role_arn,
-                self.task_cluster_name, self.task_container_name, self.task_definition_arn,
-                self.task_security_groups, self.task_subnets,
-                self.cmd + args, self.get_env())
+            run_response = await _run_task(self.log, self._aws_endpoint(), self.get_run_task_args(self))
             task_arn = run_response['tasks'][0]['taskArn']
-            self.progress_buffer.write({'progress': 1})
+            task_cluster_arn = run_response['tasks'][0]['clusterArn']
+            progress_buffer.write({'progress': 1})
         finally:
             self.calling_run_task = False
 
         self.task_arn = task_arn
+        self.task_cluster_arn = task_cluster_arn
 
         max_polls = 50
         num_polls = 0
@@ -183,13 +187,13 @@ class FargateSpawner(Spawner):
         while task_ip == '':
             num_polls += 1
             if num_polls >= max_polls:
-                raise Exception('Task {} took too long to find IP address'.format(self.task_arn))
+                raise Exception('Task {} took too long to find IP address'.format(task_arn))
 
-            task_ip = await _get_task_ip(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
+            task_ip = await _get_task_ip(self.log, self._aws_endpoint(), task_cluster_arn, task_arn)
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 1 + num_polls / max_polls})
+            progress_buffer.write({'progress': 1 + num_polls / max_polls})
 
-        self.progress_buffer.write({'progress': 2})
+        progress_buffer.write({'progress': 2})
 
         max_polls = self.start_timeout
         num_polls = 0
@@ -197,34 +201,35 @@ class FargateSpawner(Spawner):
         while status != 'RUNNING':
             num_polls += 1
             if num_polls >= max_polls:
-                raise Exception('Task {} took too long to become running'.format(self.task_arn))
+                raise Exception('Task {} took too long to become running'.format(task_arn))
 
-            status = await _get_task_status(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
+            status = await _get_task_status(self.log, self._aws_endpoint(), task_cluster_arn, task_arn)
             if status not in ALLOWED_STATUSES:
-                raise Exception('Task {} is {}'.format(self.task_arn, status))
+                raise Exception('Task {} is {}'.format(task_arn, status))
 
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 2 + num_polls / max_polls * 98})
+            progress_buffer.write({'progress': 2 + num_polls / max_polls * 98})
 
-        self.progress_buffer.write({'progress': 100, 'message': 'Server started'})
+        progress_buffer.write({'progress': 100, 'message': 'Server started'})
         await gen.sleep(1)
 
-        self.progress_buffer.close()
+        progress_buffer.close()
 
-        return f'{self.notebook_scheme}://{task_ip}:{task_port}'
+        return f'{self.notebook_scheme}://{task_ip}:{self.notebook_port}'
 
     async def stop(self, now=False):
         if self.task_arn == '':
             return
 
         self.log.debug('Stopping task (%s)...', self.task_arn)
-        await _ensure_stopped_task(self.log, self._aws_endpoint(), self.task_cluster_name, self.task_arn)
+        await _ensure_stopped_task(self.log, self._aws_endpoint(), self.task_cluster_arn, self.task_arn)
         self.log.debug('Stopped task (%s)... (done)', self.task_arn)
 
     def clear_state(self):
         super().clear_state()
         self.log.debug('Clearing state: (%s)', self.task_arn)
         self.task_arn = ''
+        self.task_cluster_arn = ''
         self.progress_buffer = AsyncIteratorBuffer()
 
     async def progress(self):
@@ -242,10 +247,10 @@ class FargateSpawner(Spawner):
 ALLOWED_STATUSES = ('', 'PROVISIONING', 'PENDING', 'RUNNING')
 
 
-async def _ensure_stopped_task(logger, aws_endpoint, task_cluster_name, task_arn):
+async def _ensure_stopped_task(logger, aws_endpoint, task_cluster_arn, task_arn):
     try:
         return await _make_ecs_request(logger, aws_endpoint, 'StopTask', {
-            'cluster': task_cluster_name,
+            'cluster': task_cluster_arn,
             'task': task_arn
         })
     except HTTPError as exception:
@@ -253,8 +258,8 @@ async def _ensure_stopped_task(logger, aws_endpoint, task_cluster_name, task_arn
             raise
 
 
-async def _get_task_ip(logger, aws_endpoint, task_cluster_name, task_arn):
-    described_task = await _describe_task(logger, aws_endpoint, task_cluster_name, task_arn)
+async def _get_task_ip(logger, aws_endpoint, task_cluster_arn, task_arn):
+    described_task = await _describe_task(logger, aws_endpoint, task_cluster_arn, task_arn)
 
     ip_address_attachements = [
         attachment['value']
@@ -265,15 +270,15 @@ async def _get_task_ip(logger, aws_endpoint, task_cluster_name, task_arn):
     return ip_address
 
 
-async def _get_task_status(logger, aws_endpoint, task_cluster_name, task_arn):
-    described_task = await _describe_task(logger, aws_endpoint, task_cluster_name, task_arn)
+async def _get_task_status(logger, aws_endpoint, task_cluster_arn, task_arn):
+    described_task = await _describe_task(logger, aws_endpoint, task_cluster_arn, task_arn)
     status = described_task['lastStatus'] if described_task else ''
     return status
 
 
-async def _describe_task(logger, aws_endpoint, task_cluster_name, task_arn):
+async def _describe_task(logger, aws_endpoint, task_cluster_arn, task_arn):
     described_tasks = await _make_ecs_request(logger, aws_endpoint, 'DescribeTasks', {
-        'cluster': task_cluster_name,
+        'cluster': task_cluster_arn,
         'tasks': [task_arn]
     })
 
@@ -287,36 +292,8 @@ async def _describe_task(logger, aws_endpoint, task_cluster_name, task_arn):
     return task
 
 
-async def _run_task(logger, aws_endpoint,
-                    task_role_arn,
-                    task_cluster_name, task_container_name, task_definition_arn, task_security_groups, task_subnets,
-                    task_command_and_args, task_env):
-    return await _make_ecs_request(logger, aws_endpoint, 'RunTask', {
-        'cluster': task_cluster_name,
-        'taskDefinition': task_definition_arn,
-        'overrides': {
-            'taskRoleArn': task_role_arn,
-            'containerOverrides': [{
-                'command': task_command_and_args,
-                'environment': [
-                    {
-                        'name': name,
-                        'value': value,
-                    } for name, value in task_env.items()
-                ],
-                'name': task_container_name,
-            }],
-        },
-        'count': 1,
-        'launchType': 'FARGATE',
-        'networkConfiguration': {
-            'awsvpcConfiguration': {
-                'assignPublicIp': 'DISABLED',
-                'securityGroups': task_security_groups,
-                'subnets': task_subnets,
-            },
-        },
-    })
+async def _run_task(logger, aws_endpoint, run_task_args):
+    return await _make_ecs_request(logger, aws_endpoint, 'RunTask', run_task_args)
 
 
 async def _make_ecs_request(logger, aws_endpoint, target, dict_data):
