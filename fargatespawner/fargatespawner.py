@@ -155,11 +155,13 @@ class FargateSpawner(Spawner):
             1
 
     async def start(self):
+        progress_buffer = self.progress_buffer
+
         self.log.debug('Starting spawner')
 
         task_port = self.notebook_port
 
-        self.progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
+        progress_buffer.write({'progress': 0.5, 'message': 'Starting server...'})
         try:
             self.calling_run_task = True
             debug_args = ['--debug'] if self.debug else []
@@ -171,7 +173,7 @@ class FargateSpawner(Spawner):
                 self.task_security_groups, self.task_subnets,
                 self.cmd + args, self.get_env())
             task_arn = run_response['tasks'][0]['taskArn']
-            self.progress_buffer.write({'progress': 1})
+            progress_buffer.write({'progress': 1})
         finally:
             self.calling_run_task = False
 
@@ -187,9 +189,9 @@ class FargateSpawner(Spawner):
 
             task_ip = await _get_task_ip(self.log, self._aws_endpoint(), self.task_cluster_name, task_arn)
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 1 + num_polls / max_polls})
+            progress_buffer.write({'progress': 1 + num_polls / max_polls})
 
-        self.progress_buffer.write({'progress': 2})
+        progress_buffer.write({'progress': 2})
 
         max_polls = self.start_timeout
         num_polls = 0
@@ -204,12 +206,12 @@ class FargateSpawner(Spawner):
                 raise Exception('Task {} is {}'.format(self.task_arn, status))
 
             await gen.sleep(1)
-            self.progress_buffer.write({'progress': 2 + num_polls / max_polls * 98})
+            progress_buffer.write({'progress': 2 + num_polls / max_polls * 98})
 
-        self.progress_buffer.write({'progress': 100, 'message': 'Server started'})
+        progress_buffer.write({'progress': 100, 'message': 'Server started'})
         await gen.sleep(1)
 
-        self.progress_buffer.close()
+        progress_buffer.close()
 
         return f'{self.notebook_scheme}://{task_ip}:{task_port}'
 
